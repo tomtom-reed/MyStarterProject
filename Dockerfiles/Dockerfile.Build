@@ -1,0 +1,67 @@
+# This is the main dockerfile for the entire application
+# It is a multi-stage build which builds the application and copies all the executable files to the final image
+# The final image has ALL the projects in it, so only a single image is necessary. No hosting multiple images. 
+# BUT the final image can have different entry points for each project, so it is only running the project that container needs.
+# I have previously encountered multiple teams that run the entire application but only expose certain ports. This does not do that.
+
+# Builder image is the full SDK
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0.203-noble AS build
+
+# Buildplatform is automatic, you do not need to pass it
+ARG BUILDPLATFORM
+ARG CI_COMMIT_SHA
+
+# ARG TARGETPLATFORM
+
+# WEB, WEBHOST, ETC
+# ARG PROJECT_NAME 
+
+# commit SHA ?
+
+# require arguments to generate valid version file 
+RUN test -n "$BUILDPLATFORM" || (echo "BUILDPLATFORM is required and not set" && false)
+RUN test -n "$CI_COMMIT_SHA" || (echo "CI_COMMIT_SHA is required and not set" && false)
+# RUN test -n "$TARGETPLATFORM" || (echo "TARGETPLATFORM is required and not set" && false)
+# RUN test -n "$PROJECT_NAME" || (echo "PROJECT_NAME is required and not set" && false)
+
+WORKDIR /build
+
+# Copy the sln and csproj files to the build context
+COPY ./*.sln ./
+COPY ./src/*/*.csproj ./
+# Build properties
+# editorconfig
+RUN for file in $(dotnet sln list | tail -n +3); do mkdir -p ${file%/*}/ && mv ${file##*/} ${file%/*}/; done
+
+RUN ls
+RUN ls src/*
+
+# Restore the solution before running publish... because reasons?
+RUN dotnet restore MyStarterProject.sln
+
+# copy everything AFTER restore 
+# Dockerfile COPY copies from build context to the image, so it's fine even though the names are the same
+COPY ./src/ ./src/
+
+RUN ls src/*
+
+# Then the builder image builds the application 
+RUN dotnet publish -c Release --no-restore
+
+###########################
+#### RUNTIME GOES HERE ####
+###########################
+# The runtime image is the runtime only, no SDK. Smaller, faster, safer.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/runtime:9.0.4-noble AS runtime
+
+# TODO run apt-get update requirements
+# That might require some refactoring of the Dockerfile so not all dependencies go everwhere
+
+WORKDIR /app
+COPY --from=build /app/ ./
+
+# Also copy the run scripts to the runtime image
+COPY ./Dockerfiles/Scripts .
+
+ENTRYPOINT [ "run-and-exit.sh" ]
+# ENTRYPOINT [ "dotnet ${PROJECT_NAME}.dll" ]

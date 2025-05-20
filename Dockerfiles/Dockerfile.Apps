@@ -1,0 +1,55 @@
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0.203-noble AS build
+
+ARG BUILDPLATFORM
+# ARG TARGETPLATFORM
+
+# WEB, WEBHOST, ETC
+ARG PROJECT_NAME 
+
+# commit SHA ?
+
+# require arguments to generate valid version file 
+RUN test -n "$BUILDPLATFORM" || (echo "BUILDPLATFORM is required and not set" && false)
+# RUN test -n "$TARGETPLATFORM" || (echo "TARGETPLATFORM is required and not set" && false)
+RUN test -n "$PROJECT_NAME" || (echo "PROJECT_NAME is required and not set" && false)
+
+WORKDIR /build
+
+COPY ./*.sln ./
+COPY ./src/*/*.csproj ./src/
+# Build properties
+# editorconfig
+
+RUN dotnet restore
+
+# copy everything AFTER restore 
+COPY ./src/ ./src/
+
+# RUN dotnet publish ${PROJECT_NAME} -c Release -o /app
+RUN dotnet publish ./src/${PROJECT_NAME}/ -c Release -o /app --no-restore
+
+# RUN mkdir /output
+# COPY --from=build /app ./
+# WORKDIR /output
+
+###########################
+#### RUNTIME GOES HERE ####
+###########################
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/runtime:9.0.4-noble AS runtime
+
+# TODO run apt-get update requirements
+# That might require some refactoring of the Dockerfile so not all dependencies go everwhere
+
+WORKDIR /app
+COPY --from=build /app/ ./
+
+ENTRYPOINT [ "dotnet ${PROJECT_NAME}.dll" ]
+
+
+# Hello self. 
+# What you must do now is:
+    # ref the docker-compose scripts as the entry points 
+    # figure out the multiple builds for multiple projects 
+    # test? 
+    # db project etc 
+#... maybe

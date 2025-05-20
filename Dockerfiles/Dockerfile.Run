@@ -1,0 +1,14 @@
+###########################
+#### RUNTIME GOES HERE ####
+###########################
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/runtime:9.0.4-noble AS runtime
+
+# TODO run apt-get update requirements
+# That might require some refactoring of the Dockerfile so not all dependencies go everwhere
+
+COPY --from=nginx:latest /etc/nginx/nginx.conf /nginx.conf
+
+WORKDIR /app
+COPY --from=build /app/ ./
+
+ENTRYPOINT [ "dotnet ${PROJECT_NAME}.dll" ]

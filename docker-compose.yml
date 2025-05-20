@@ -1,0 +1,90 @@
+name: tomtomreed/starterproject
+
+# x-web-volumes: &web-volumes
+#   - ./docker-compose/certs:/docker-compose/certs:ro # Map local directory to a directory in the docker container, in read-only mode
+
+x-common-environment: &common-environment
+  DOTNET_ENVIRONMENT:
+  Web_Hostname:
+  WebHost_Hostname:
+
+x-api-dependencies: &api-dependencies
+  postgres:
+    condition: service_healthy
+  app-image:
+    condition: service_started
+  dbmigrator:
+    condition: service_completed_successfully
+
+networks:
+  local-container-network:
+    driver: bridge
+  
+volumes:
+  postgres_data:
+
+services:
+  postgres:
+    image: postgres:17
+    ports:
+      - "5432:5432"
+    networks:
+      local-container-network:
+        aliases:
+          - postgres.local
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all -c pg_stat_statements.max=10000 -c max_connections=200
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 4s
+      retries: 3
+
+  app-image:
+    image: tomtom.reed/starterproject/Apps:local
+    build:
+      context: .
+      dockerfile: ./dockerfiles/Dockerfile.Apps
+      args:
+        CI_COMMIT_SHA: local # for future use in Jenkins etc
+
+  # TODO this shit, need to figure out entity engine whatever
+  dbmigrator:
+    image: tomtom.reed/starterproject/Apps:local
+    entrypoint: [ "/run-migrator.sh" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - local-container-network
+    environment: *common-environment
+
+  web:
+    image: tomtom.reed/starterproject/Apps:local
+    entrypoint: [ "run-api.sh", "Web" ]
+    ports:
+      - 5021:5021
+    depends_on: *api-dependencies
+    networks:
+      local-container-network:
+        aliases:
+          - tomtomreed.starterproject.web
+    environment:
+      <<: *common-environment
+      API_CONTAINER: Tomtomreed.Starterproject.Web.Api
+  
+  webhost:
+    image: tomtom.reed/starterproject/Apps:local
+    ports:
+      - 5022:5022
+    depends_on: *api-dependencies
+    networks:
+      local-container-network:
+        aliases:
+          - tomtomreed.starterproject.webhost
+    environment:
+      <<: *common-environment
+      API_CONTAINER: Tomtomreed.Starterproject.WebHost.Api
